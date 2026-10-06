@@ -456,6 +456,48 @@ def test_output_rollback_failure_reports_retained_backup(tmp_path: Path, monkeyp
     assert list(plan.parent.glob(".fix-plan.sh.linter-backup-*"))
 
 
+def test_cli_reports_incomplete_rollback_after_interrupt(tmp_path: Path, monkeypatch):
+    root = clean_dataset(tmp_path / "data")
+    json_path, html_path, plan = _write_existing_outputs(tmp_path)
+    original_replace = safety._replace
+    calls = 0
+
+    def interrupt_publish_then_fail_restore(source: Path, destination: Path) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 6:
+            raise KeyboardInterrupt
+        if calls == 7:
+            raise OSError("injected restore failure")
+        original_replace(source, destination)
+
+    monkeypatch.setattr(safety, "_replace", interrupt_publish_then_fail_restore)
+    result = runner.invoke(
+        app,
+        [
+            "scan",
+            str(root),
+            "--min-side",
+            "8",
+            "--json",
+            str(json_path),
+            "--html",
+            str(html_path),
+            "--fix-plan",
+            str(plan),
+            "--quiet",
+        ],
+    )
+
+    backups = list(plan.parent.glob(".fix-plan.sh.linter-backup-*"))
+    assert result.exit_code == 130
+    assert "Output rollback incomplete" in result.output
+    assert "injected restore failure" in result.output
+    assert str(plan) in result.output
+    assert len(backups) == 1
+    assert str(backups[0]) in result.output
+
+
 def test_missing_dataset_exits_three(tmp_path: Path):
     result = runner.invoke(app, ["scan", str(tmp_path / "missing")])
     assert result.exit_code == 3

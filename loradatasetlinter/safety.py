@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -108,6 +109,7 @@ def publish_outputs(outputs: list[tuple[str, Path, str]]) -> None:
         if diagnostics:
             detail = "Output rollback incomplete: " + "; ".join(diagnostics)
             if isinstance(exc, KeyboardInterrupt | SystemExit):
+                print(detail, file=sys.stderr)
                 exc.add_note(detail)
             else:
                 raise OutputRollbackError(f"{exc}. {detail}") from exc
