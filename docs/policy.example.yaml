@@ -1,0 +1,115 @@
+# LoRA Dataset Linter policy.
+# A partial file is merged over these defaults. Unknown keys are an error.
+# Severities are fail, warn, and info.
+# Overall status is fail when any fail finding exists or the score is below
+# warn_min, warn when any warn finding exists or the score is below pass_min,
+# and pass otherwise. Info findings change the score and do not, by themselves,
+# change the status.
+
+version: 1
+
+resolution:
+  enabled: true
+  min_side: 512
+  min_side_severity: fail
+  upscale_artifacts: true
+  # Fraction of factor-sized blocks that are perfectly flat before an image
+  # is called a nearest-neighbor upscale. 1.0 is exact; 0.99 allows a few
+  # odd-sized edge blocks to be cropped out of the measurement.
+  upscale_block_fraction: 0.99
+  upscale_severity: warn
+  # Flag a shortest side at or beyond median/ratio or median*ratio.
+  median_outlier_ratio: 2.0
+  median_min_images: 4
+  outlier_severity: warn
+
+aspect:
+  enabled: true
+  # Geometric distance from the folder's median aspect. 1.75 means 75% wider
+  # or taller than the typical image. The boundary is included.
+  outlier_ratio: 1.75
+  outlier_min_images: 4
+  outlier_severity: warn
+  extreme_aspect: 3.0
+  extreme_severity: warn
+  base_resolutions: [512, 768, 1024]
+  min_bucket_size: 256
+  max_bucket_size: 2048
+  bucket_step: 64
+
+duplicates:
+  enabled: true
+  exact_severity: fail
+  pixel_severity: fail
+  perceptual: true
+  # phash or dhash. The Hamming threshold is for that hash at hash_size.
+  hash_method: phash
+  hash_size: 8
+  # Distances at or below this value are near-duplicates. 8 is a common
+  # cutoff for a 64-bit hash (hash_size 8).
+  hamming_threshold: 8
+  near_severity: warn
+  clip:
+    # Off unless you install a CPU torch build and point checkpoint at a
+    # local open_clip weight file. The linter never downloads weights and
+    # never moves the model onto a GPU.
+    enabled: false
+    cosine_threshold: 0.95
+    checkpoint: null
+    model: ViT-B-32
+    severity: warn
+
+files:
+  enabled: true
+  corrupt_severity: fail
+  cmyk_severity: warn
+  alpha_severity: warn
+  opaque_alpha_severity: info
+  exif_orientation_severity: warn
+  format_mix_severity: info
+
+captions:
+  enabled: true
+  missing_severity: fail
+  empty_severity: fail
+  orphan_severity: warn
+  shared_caption_severity: warn
+  trigger_words: []
+  trigger_severity: warn
+  # Tags seen in at most this many captions are rare.
+  rare_max_images: 1
+  rare_severity: info
+  # Tags seen in at most this many captions, once the set is large enough,
+  # are low-support drift (singletons stay under rare_tag).
+  drift_max_images: 2
+  drift_min_dataset: 6
+  drift_severity: info
+  synonym_severity: warn
+  synonym_max_distance: 1
+  order_min_images: 3
+  order_minority_ratio: 0.2
+  order_severity: info
+  separator_severity: warn
+  max_tokens: 75
+  token_severity: warn
+
+stats:
+  enabled: true
+  epochs: 10
+  batch_size: 1
+  default_repeats: 1
+  # Class weight is images * repeats. The boundary ratio is included.
+  balance_ratio: 3.0
+  balance_severity: warn
+  zero_repeats_severity: warn
+
+score:
+  weights:
+    fail: 20
+    warn: 6
+    info: 1
+  pass_min: 90
+  warn_min: 70
+
+output:
+  thumbnail_px: 160
