@@ -14,7 +14,7 @@ def cluster_by_distance(
     hashes: dict[str, int],
     threshold: int,
 ) -> list[list[str]]:
-    """Group ids whose hash distance is at or below ``threshold``."""
+    """Return connected components whose direct hash links meet ``threshold``."""
     return _components(ids, lambda a, b: hamming(hashes[a], hashes[b]) <= threshold)
 
 
@@ -23,7 +23,7 @@ def cluster_by_cosine(
     vectors: dict[str, np.ndarray],
     threshold: float,
 ) -> list[list[str]]:
-    """Group ids whose cosine similarity is at or above ``threshold``.
+    """Return connected components whose direct cosine links meet ``threshold``.
 
     Vectors must already be L2-normalized.
     """

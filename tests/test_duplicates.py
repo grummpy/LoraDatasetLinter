@@ -2,8 +2,10 @@ import shutil
 from pathlib import Path
 
 import numpy as np
+from loradatasetlinter.checks.duplicates import check_duplicates
 from loradatasetlinter.cluster import cluster_by_cosine, cluster_by_distance, hamming
 from loradatasetlinter.engine import scan_dataset
+from loradatasetlinter.models import Dataset, ImageRecord
 from loradatasetlinter.policy import load_policy
 from PIL import Image
 from tests.fixtures import caption, circle, finding_codes, gradient, relax
@@ -65,6 +67,32 @@ def test_near_duplicate_hamming_edge_on_images(tmp_path: Path):
     below.duplicates.hamming_threshold = distance - 1
     report = scan_dataset(tmp_path, below)
     assert "near_duplicate" not in finding_codes(report)
+
+
+def test_near_duplicate_reports_connected_similarity_chain(tmp_path: Path):
+    records = [
+        ImageRecord(
+            rel=rel,
+            path=tmp_path / rel,
+            file_hash=f"file-{rel}",
+            file_size=1,
+            pixel_hash=f"pixels-{rel}",
+            perceptual_hash=value,
+            oriented_width=8,
+            oriented_height=8,
+        )
+        for rel, value in (("a.png", 0), ("b.png", 1), ("c.png", 3))
+    ]
+    policy = relax()
+    policy.duplicates.hamming_threshold = 1
+    findings = check_duplicates(Dataset(tmp_path, records, [], [], []), policy)
+    near = [item for item in findings if item.code == "near_duplicate"]
+
+    assert len(near) == 1
+    assert near[0].details["grouping"] == "connected_similarity_chain"
+    assert near[0].details["max_distance"] == 2
+    assert "similarity chain" in near[0].reason
+    assert "can exceed the threshold" in near[0].reason
 
 
 def test_disabled_duplicate_check_is_silent(tmp_path: Path, policy):
