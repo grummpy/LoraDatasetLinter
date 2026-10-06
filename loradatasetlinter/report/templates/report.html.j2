@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LoRA Dataset Linter — {{ report.score.status|upper }}</title>
+<style>
+  :root {
+    --bg: #070b16;
+    --panel: #12182b;
+    --line: #2a3654;
+    --text: #e7eefc;
+    --muted: #93a0bd;
+    --cyan: #2ee6d6;
+    --fail: #ff5d73;
+    --warn: #ffb020;
+    --info: #7eb6ff;
+    --pass: #3dd68c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.45 "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  header, main { padding: 24px; max-width: 1180px; margin: 0 auto; }
+  header { padding-bottom: 0; }
+  h1 { margin: 0 0 4px; font-size: 28px; letter-spacing: 0.02em; }
+  h1 span { color: var(--cyan); }
+  h2 { margin: 28px 0 12px; font-size: 18px; }
+  .sub { color: var(--muted); margin: 0; }
+  .cards { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px 16px;
+    min-width: 140px;
+  }
+  .card .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .card .v { font-size: 28px; font-weight: 700; margin-top: 4px; }
+  .status-pass { color: var(--pass); }
+  .status-warn { color: var(--warn); }
+  .status-fail { color: var(--fail); }
+  .finding, .meta, table { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+  .finding { padding: 12px 14px; margin: 0 0 8px; }
+  .badge {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 1px 8px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .badge.fail { background: #3a1420; color: var(--fail); }
+  .badge.warn { background: #3a2a10; color: var(--warn); }
+  .badge.info { background: #14243a; color: var(--info); }
+  .badge.pass { background: #103228; color: var(--pass); }
+  .files { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+  .reason { margin: 6px 0 0; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+  figure {
+    margin: 0;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  figure img, .placeholder {
+    width: 100%;
+    height: 140px;
+    object-fit: cover;
+    background: #0c1222;
+    display: block;
+  }
+  .placeholder { display: flex; align-items: center; justify-content: center; color: var(--muted); }
+  figcaption { padding: 8px 10px 10px; }
+  figcaption strong { display: block; font-size: 12px; word-break: break-all; }
+  .meta { padding: 12px 14px; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; overflow: hidden; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .bar-row { display: grid; grid-template-columns: 120px 1fr 40px; gap: 8px; align-items: center; margin: 4px 0; }
+  .track { background: #0c1222; border-radius: 999px; height: 10px; }
+  .fill { display: block; height: 10px; border-radius: 999px; background: linear-gradient(90deg, #2ee6d6, #7a6cff); }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  button {
+    background: #0c1222;
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  button.active { border-color: var(--cyan); color: var(--cyan); }
+  footer { color: var(--muted); padding: 8px 24px 32px; max-width: 1180px; margin: 0 auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>LoRA Dataset <span>Linter</span></h1>
+  <p class="sub">{{ report.dataset }}</p>
+  <p class="sub">Generated {{ generated }} · v{{ version }} · local only, dataset unchanged</p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">Status</div>
+      <div class="v status-{{ report.score.status }}" id="status">{{ report.score.status|upper }}</div>
+    </div>
+    <div class="card">
+      <div class="k">Score</div>
+      <div class="v">{{ report.score.value }}</div>
+    </div>
+    <div class="card">
+      <div class="k">Fail / warn / info</div>
+      <div class="v">{{ report.score.counts.fail }} / {{ report.score.counts.warn }} / {{ report.score.counts.info }}</div>
+    </div>
+    <div class="card">
+      <div class="k">Images</div>
+      <div class="v">{{ stats.readable_images }}</div>
+    </div>
+    <div class="card">
+      <div class="k">Steps</div>
+      <div class="v">{{ steps.steps }}</div>
+    </div>
+  </div>
+</header>
+<main>
+  <p class="meta">
+    Step estimate uses {{ steps.formula }}.
+    Weighted images {{ steps.weighted_images }},
+    epochs {{ steps.epochs }},
+    batch {{ steps.batch_size }},
+    naive product {{ steps.naive_steps }}.
+  </p>
+
+  <h2>Findings</h2>
+  <div class="filters">
+    <button type="button" class="active" data-filter="all">All</button>
+    <button type="button" data-filter="fail">Fail</button>
+    <button type="button" data-filter="warn">Warn</button>
+    <button type="button" data-filter="info">Info</button>
+  </div>
+  <div id="findings">
+    {% for finding in findings %}
+    <article class="finding" data-severity="{{ finding.severity }}">
+      <span class="badge {{ finding.severity }}">{{ finding.severity }}</span>
+      <strong>{{ finding.code }}</strong>
+      <div class="files">{{ finding.files|join(", ") if finding.files else "(dataset)" }}</div>
+      <p class="reason">{{ finding.reason }}</p>
+    </article>
+    {% else %}
+    <p class="meta">No findings.</p>
+    {% endfor %}
+  </div>
+
+  <h2>Kohya buckets</h2>
+  {% for section in bucket_sections %}
+  <h3>Base {{ section.base }}</h3>
+  {% if section.bars %}
+    {% for bar in section.bars %}
+    <div class="bar-row">
+      <span>{{ bar.label }}</span>
+      <span class="track"><span class="fill" style="width: {{ bar.pct }}%"></span></span>
+      <span>{{ bar.count }}</span>
+    </div>
+    {% endfor %}
+  {% else %}
+    <p class="meta">No readable images for this base.</p>
+  {% endif %}
+  {% endfor %}
+
+  <h2>Classes</h2>
+  {% if classes %}
+  <table>
+    <thead><tr><th>Folder</th><th>Class</th><th>Repeats</th><th>Images</th><th>Weight</th><th>Share</th></tr></thead>
+    <tbody>
+      {% for row in classes %}
+      <tr>
+        <td>{{ row.folder or "root" }}</td>
+        <td>{{ row.class_name }}</td>
+        <td>{{ row.repeats }}</td>
+        <td>{{ row.images }}</td>
+        <td>{{ row.weight }}</td>
+        <td>{{ "%0.1f"|format(row.share * 100) }}%</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="meta">No readable images.</p>
+  {% endif %}
+
+  <h2>Images</h2>
+  <div class="grid">
+    {% for image in images %}
+    <figure>
+      {% if image.thumbnail %}
+      <img alt="{{ image.file }}" src="{{ image.thumbnail }}">
+      {% else %}
+      <div class="placeholder">unreadable</div>
+      {% endif %}
+      <figcaption>
+        <strong>{{ image.file }}</strong>
+        <span class="files">
+          {% if image.oriented_width %}{{ image.oriented_width }}×{{ image.oriented_height }} {{ image.format }}{% endif %}
+          {% if image.bucket_text %} · {{ image.bucket_text }}{% endif %}
+        </span>
+        <div>
+          {% for issue in image.issues %}
+          <span class="badge info">{{ issue }}</span>
+          {% endfor %}
+        </div>
+      </figcaption>
+    </figure>
+    {% endfor %}
+  </div>
+
+  <h2>Tag frequency</h2>
+  {% if tags %}
+  <table>
+    <thead><tr><th>Tag</th><th>Images</th></tr></thead>
+    <tbody>
+      {% for tag in tags %}
+      <tr><td>{{ tag.tag }}</td><td>{{ tag.count }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="meta">No captions to count.</p>
+  {% endif %}
+</main>
+<footer>
+  Thumbnails were generated on this machine and embedded in the file. The page does not load remote images, fonts, or scripts.
+</footer>
+<script>
+  document.querySelectorAll(".filters button").forEach(function (button) {
+    button.addEventListener("click", function () {
+      document.querySelectorAll(".filters button").forEach(function (item) { item.classList.remove("active"); });
+      button.classList.add("active");
+      var filter = button.getAttribute("data-filter");
+      document.querySelectorAll("#findings .finding").forEach(function (card) {
+        card.style.display = (filter === "all" || card.getAttribute("data-severity") === filter) ? "" : "none";
+      });
+    });
+  });
+</script>
+</body>
+</html>

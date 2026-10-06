@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lora-dataset-linter"
+version = "0.1.0"
+description = "CPU-only preflight linter for ComfyUI and kohya LoRA image datasets."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "pillow==11.3.0",
+  "imagehash==4.3.2",
+  "numpy==2.2.6",
+  "scipy==1.15.3",
+  "PyWavelets==1.8.0",
+  "typer==0.15.4",
+  "jinja2==3.1.6",
+  "pyyaml==6.0.2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest==8.3.5",
+  "ruff==0.11.13",
+]
+
+[project.scripts]
+lora-dataset-linter = "loradatasetlinter.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["loradatasetlinter*"]
+
+[tool.setuptools.package-data]
+loradatasetlinter = ["default_policy.yaml", "report/templates/*.j2"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["loradatasetlinter", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
+"loradatasetlinter/cli.py" = ["B008"]
