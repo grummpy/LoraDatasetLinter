@@ -389,6 +389,73 @@ def test_replacement_failure_rolls_back_all_previous_outputs(tmp_path: Path, mon
     ]
 
 
+def test_keyboard_interrupt_during_replacement_rolls_back_all_outputs(tmp_path: Path, monkeypatch):
+    json_path, html_path, plan = _write_existing_outputs(tmp_path)
+    original_replace = safety._replace
+    calls = 0
+
+    def interrupt_third_replacement(source: Path, destination: Path) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 6:
+            raise KeyboardInterrupt
+        original_replace(source, destination)
+
+    monkeypatch.setattr(safety, "_replace", interrupt_third_replacement)
+
+    with pytest.raises(KeyboardInterrupt):
+        safety.publish_outputs(
+            [
+                ("JSON report", json_path, "new-json"),
+                ("HTML report", html_path, "new-html"),
+                ("fix plan", plan, "new-plan"),
+            ]
+        )
+
+    assert [path.read_text(encoding="utf-8") for path in (json_path, html_path, plan)] == [
+        "previous-0",
+        "previous-1",
+        "previous-2",
+    ]
+
+
+def test_output_rollback_failure_reports_retained_backup(tmp_path: Path, monkeypatch):
+    json_path, html_path, plan = _write_existing_outputs(tmp_path)
+    original_replace = safety._replace
+    calls = 0
+
+    def fail_publish_and_restore(source: Path, destination: Path) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 6:
+            raise OSError("injected publish failure")
+        if calls == 7:
+            raise OSError("injected restore failure")
+        original_replace(source, destination)
+
+    monkeypatch.setattr(safety, "_replace", fail_publish_and_restore)
+
+    with pytest.raises(safety.OutputRollbackError) as exc_info:
+        safety.publish_outputs(
+            [
+                ("JSON report", json_path, "new-json"),
+                ("HTML report", html_path, "new-html"),
+                ("fix plan", plan, "new-plan"),
+            ]
+        )
+
+    message = str(exc_info.value)
+    assert "Output rollback incomplete" in message
+    assert "fix plan" in message
+    assert "retained backup at" in message
+    assert [path.read_text(encoding="utf-8") for path in (json_path, html_path)] == [
+        "previous-0",
+        "previous-1",
+    ]
+    assert not plan.exists()
+    assert list(plan.parent.glob(".fix-plan.sh.linter-backup-*"))
+
+
 def test_missing_dataset_exits_three(tmp_path: Path):
     result = runner.invoke(app, ["scan", str(tmp_path / "missing")])
     assert result.exit_code == 3
@@ -578,7 +645,7 @@ def test_fix_plan_handles_trailing_newline_dataset_directory(tmp_path: Path):
     _original, copy = _duplicate_pair(root)
     plan = tmp_path / "fix-plan.sh"
     _write_fix_plan(root, plan)
-    assert "$(" not in plan.read_text(encoding="utf-8")
+    assert 'current="$(' not in plan.read_text(encoding="utf-8")
 
     applied = subprocess.run(
         ["bash", str(plan)],
@@ -724,7 +791,42 @@ def test_fix_plan_preflights_caption_destination_before_moving_image(tmp_path: P
     assert caption_destination.read_text(encoding="utf-8") == "existing caption review"
 
 
-def test_fix_plan_keeps_move_intent_when_receipt_finalization_fails(tmp_path: Path):
+@pytest.mark.parametrize("protected_kind", ["retained_caption", "outside_sentinel"])
+def test_fix_plan_refuses_hard_linked_recovery_receipt_without_changing_target(
+    tmp_path: Path, protected_kind: str
+):
+    root = tmp_path / "data"
+    root.mkdir()
+    _original, copy = _duplicate_pair(root)
+    plan = tmp_path / "fix-plan.sh"
+    _write_fix_plan(root, plan)
+    receipt = root / "_linter_review" / "recovery-receipts.tsv"
+    receipt.parent.mkdir()
+    if protected_kind == "retained_caption":
+        protected = root / "a.txt"
+    else:
+        protected = tmp_path / "outside-sentinel"
+        protected.write_text("outside sentinel bytes", encoding="utf-8")
+    before = protected.read_bytes()
+    os.link(protected, receipt)
+
+    applied = subprocess.run(
+        ["bash", str(plan)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "DRY_RUN": "0"},
+    )
+
+    assert applied.returncode != 0
+    assert "multiple hard links" in applied.stderr
+    assert protected.read_bytes() == before
+    assert copy.is_file()
+    assert (root / "b.txt").is_file()
+    assert not (root / "_linter_review" / "duplicates" / "b.png").exists()
+
+
+def test_fix_plan_keeps_move_intent_when_receipt_identity_changes(tmp_path: Path):
     root = tmp_path / "data"
     root.mkdir()
     _original, copy = _duplicate_pair(root)
@@ -746,7 +848,8 @@ def test_fix_plan_keeps_move_intent_when_receipt_finalization_fails(tmp_path: Pa
                 '/bin/mv "$@"',
                 "status=$?",
                 'if [[ "$count" == "2" && "$status" == "0" ]]; then '
-                'chmod 400 "$RECEIPTS_TARGET"; fi',
+                '/bin/mv "$RECEIPTS_TARGET" "$RECEIPTS_TARGET.replaced"; '
+                'printf "%s" "replacement" > "$RECEIPTS_TARGET"; fi',
                 'exit "$status"',
                 "",
             ]
@@ -755,29 +858,27 @@ def test_fix_plan_keeps_move_intent_when_receipt_finalization_fails(tmp_path: Pa
     )
     wrapper.chmod(0o700)
 
-    try:
-        applied = subprocess.run(
-            ["bash", str(plan)],
-            check=False,
-            capture_output=True,
-            text=True,
-            env={
-                **os.environ,
-                "DRY_RUN": "0",
-                "MV_COUNT": str(counter),
-                "RECEIPTS_TARGET": str(receipt),
-                "PATH": f"{wrapper_dir}{os.pathsep}{os.environ['PATH']}",
-            },
-        )
-    finally:
-        receipt.chmod(0o600)
+    applied = subprocess.run(
+        ["bash", str(plan)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "DRY_RUN": "0",
+            "MV_COUNT": str(counter),
+            "RECEIPTS_TARGET": str(receipt),
+            "PATH": f"{wrapper_dir}{os.pathsep}{os.environ['PATH']}",
+        },
+    )
 
     assert applied.returncode != 0
     assert not copy.exists()
     assert not (root / "b.txt").exists()
     assert (root / "_linter_review" / "duplicates" / "b.png").is_file()
     assert (root / "_linter_review" / "duplicates" / "b.txt").is_file()
-    journal = receipt.read_text(encoding="utf-8")
+    assert receipt.read_text(encoding="utf-8") == "replacement"
+    journal = receipt.with_name(f"{receipt.name}.replaced").read_text(encoding="utf-8")
     assert "intent" in journal
     assert "moved" not in journal
 
@@ -830,3 +931,57 @@ def test_fix_plan_rolls_back_image_when_caption_move_fails(tmp_path: Path):
     journal = (root / "_linter_review" / "recovery-receipts.tsv").read_text(encoding="utf-8")
     assert "intent" in journal
     assert "rolled_back" in journal
+
+
+def test_fix_plan_marks_recovery_required_when_image_rollback_fails(tmp_path: Path):
+    root = tmp_path / "data"
+    root.mkdir()
+    _original, copy = _duplicate_pair(root)
+    plan = tmp_path / "fix-plan.sh"
+    _write_fix_plan(root, plan)
+    wrapper_dir = tmp_path / "bin"
+    wrapper_dir.mkdir()
+    counter = tmp_path / "mv-count"
+    wrapper = wrapper_dir / "mv"
+    wrapper.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                "count=0",
+                'if [[ -f "$MV_COUNT" ]]; then count=$(<"$MV_COUNT"); fi',
+                "count=$((count + 1))",
+                'printf "%s" "$count" > "$MV_COUNT"',
+                'if [[ "$count" == "2" || "$count" == "3" ]]; then exit 1; fi',
+                'exec /bin/mv "$@"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o700)
+
+    applied = subprocess.run(
+        ["bash", str(plan)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "DRY_RUN": "0",
+            "MV_COUNT": str(counter),
+            "PATH": f"{wrapper_dir}{os.pathsep}{os.environ['PATH']}",
+        },
+    )
+
+    assert applied.returncode != 0
+    assert not copy.exists()
+    assert (root / "b.txt").is_file()
+    destination = root / "_linter_review" / "duplicates" / "b.png"
+    assert destination.is_file()
+    assert not (root / "_linter_review" / "duplicates" / "b.txt").exists()
+    journal = (root / "_linter_review" / "recovery-receipts.tsv").read_text(encoding="utf-8")
+    assert "intent" in journal
+    assert "recovery_required" in journal
+    assert "rolled_back" not in journal
+    assert str(destination) in journal
+    assert str(copy) in journal

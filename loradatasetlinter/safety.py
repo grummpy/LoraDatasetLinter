@@ -11,6 +11,10 @@ from pathlib import Path
 from loradatasetlinter.errors import LintError
 
 
+class OutputRollbackError(LintError):
+    """Publishing failed and one or more previous outputs could not be restored."""
+
+
 @dataclass
 class _StagedOutput:
     label: str
@@ -99,8 +103,14 @@ def publish_outputs(outputs: list[tuple[str, Path, str]]) -> None:
                 _replace(item.target, item.backup)
             _replace(item.staged, item.target)
             item.published = True
-    except OSError:
-        _rollback_outputs(staged)
+    except BaseException as exc:
+        diagnostics = _rollback_outputs(staged)
+        if diagnostics:
+            detail = "Output rollback incomplete: " + "; ".join(diagnostics)
+            if isinstance(exc, KeyboardInterrupt | SystemExit):
+                exc.add_note(detail)
+            else:
+                raise OutputRollbackError(f"{exc}. {detail}") from exc
         raise
     else:
         for item in staged:
@@ -205,16 +215,21 @@ def _replace(source: Path, destination: Path) -> None:
     os.replace(source, destination)
 
 
-def _rollback_outputs(staged: list[_StagedOutput]) -> None:
+def _rollback_outputs(staged: list[_StagedOutput]) -> list[str]:
+    diagnostics: list[str] = []
     for item in reversed(staged):
         try:
             if item.backup is not None and item.backup.exists():
                 _replace(item.backup, item.target)
             elif item.published:
                 item.target.unlink(missing_ok=True)
-        except OSError:
-            # Preserve the original publish error; any surviving backup is evidence for recovery.
-            continue
+        except OSError as exc:
+            if item.backup is not None and item.backup.exists():
+                retained = f"retained backup at {item.backup}"
+            else:
+                retained = f"current output may remain at {item.target}"
+            diagnostics.append(f"{item.label}: could not restore {item.target}: {exc}; {retained}")
+    return diagnostics
 
 
 def _unlink_if_exists(path: Path) -> None:
