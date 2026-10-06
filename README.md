@@ -74,13 +74,13 @@ Image suffixes: `.jpg`, `.jpeg`, `.png`, `.webp`, `.bmp`, `.gif`, `.tif`, `.tiff
 
 The terminal summary lists status, score, dataset stats, and findings. JSON is the same report without thumbnails. HTML is one file: inline CSS, inline filter script, and JPEG thumbnails as `data:` URIs generated with Pillow. Nothing in the report is fetched from the network.
 
-`--fix-plan` writes a bash script that defaults to a dry run (`DRY_RUN=1`). Review it, then apply with `DRY_RUN=0 bash fix-plan.sh`. Moves go to `$DATASET/_linter_review/{duplicates,low_resolution,unreadable,orphans}/`. The lexicographically first path in an exact-duplicate group is kept. Near-duplicates and missing captions are comments only.
+`--fix-plan` writes a bash script that defaults to a dry run (`DRY_RUN=1`). Review it, then apply with `DRY_RUN=0 bash fix-plan.sh`. Moves go to `$DATASET/_linter_review/{duplicates,low_resolution,unreadable,orphans}/`. The lexicographically first path in an exact-duplicate group is kept. Each move checks that its source and destination remain contained in the dataset, refuses symlinks and pre-existing destinations, and writes a shell-escaped recovery receipt to `_linter_review/recovery-receipts.tsv`. An image's unshared caption moves beside it; shared captions are left in place and called out for review. Near-duplicates and missing captions are comments only.
 
 ## Checks
 
 Every finding has a severity (`fail`, `warn`, or `info`), a reason, and the files involved.
 
-**Duplicates.** SHA-256 of the file bytes (`exact_duplicate`), and SHA-256 of oriented RGB pixels when the files differ but the pixels do not (`exact_pixels`). Near-duplicates use pHash or dHash and a Hamming threshold (`near_duplicate`). Optional CLIP cosine clusters (`clip_near_duplicate`) run only when the policy turns them on. A missing checkpoint or missing install becomes `clip_unavailable` and does not download anything.
+**Duplicates.** SHA-256 of the file bytes (`exact_duplicate`), and SHA-256 of oriented RGB pixels when the files differ but the pixels do not (`exact_pixels`). Near-duplicates use pHash or dHash and a Hamming threshold (`near_duplicate`). Near-duplicate and optional CLIP results are connected similarity chains: each item has a qualifying link, but two members at opposite ends can be farther apart than the threshold. Optional CLIP cosine clusters (`clip_near_duplicate`) run only when the policy turns them on. A missing checkpoint or missing install becomes `clip_unavailable` and does not download anything.
 
 **Resolution.** Shortest oriented side below `min_side` is `low_resolution`. Nearest-neighbor block constancy (factors 2 and 4) is `upscale_artifact`; flat images are ignored. A shortest side at or beyond `median/ratio` or `median*ratio` is `resolution_outlier` once the folder has enough images.
 

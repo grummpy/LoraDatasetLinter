@@ -110,13 +110,14 @@ def _perceptual(images: list[ImageRecord], policy: Policy) -> list[Finding]:
                 code="near_duplicate",
                 severity=policy.duplicates.near_severity,
                 reason=(
-                    f"{method} Hamming distance in this group is {nearest}"
-                    f"{'' if nearest == farthest else f' to {farthest}'}, "
-                    f"within the threshold of {threshold}. "
+                    f"{method} similarity chain has Hamming distances from {nearest}"
+                    f" to {farthest}; each link is at or below the threshold of {threshold}. "
+                    "Pairs at opposite ends of the chain can exceed the threshold. "
                     "Near-copies spend steps on the same picture."
                 ),
                 files=cluster,
                 details={
+                    "grouping": "connected_similarity_chain",
                     "hash_method": method,
                     "hamming_threshold": threshold,
                     "min_distance": nearest,
@@ -160,12 +161,16 @@ def _clip(images: list[ImageRecord], policy: Policy) -> list[Finding]:
                 code="clip_near_duplicate",
                 severity=clip.severity,
                 reason=(
-                    "CLIP cosine similarity is at or above "
-                    f"{clip.cosine_threshold:.3f}. The pictures are semantically close "
-                    "even when the perceptual hash stays apart."
+                    "CLIP similarity chain has links at or above "
+                    f"{clip.cosine_threshold:.3f}; pairs at opposite ends can be less similar. "
+                    "The pictures are semantically close even when the perceptual hash stays apart."
                 ),
                 files=cluster,
-                details={"cosine_threshold": clip.cosine_threshold, "model": clip.model},
+                details={
+                    "grouping": "connected_similarity_chain",
+                    "cosine_threshold": clip.cosine_threshold,
+                    "model": clip.model,
+                },
             )
         )
     return findings

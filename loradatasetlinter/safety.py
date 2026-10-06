@@ -14,6 +14,7 @@ def is_inside(path: Path, root: Path) -> bool:
 
 
 def ensure_outputs_outside(dataset: Path, outputs: list[Path | None]) -> None:
+    identities: dict[Path, Path] = {}
     for output in outputs:
         if output is None:
             continue
@@ -22,3 +23,11 @@ def ensure_outputs_outside(dataset: Path, outputs: list[Path | None]) -> None:
                 f"Refusing to write {output} inside the dataset at {dataset}. "
                 "The linter never modifies the dataset. Choose a path outside it."
             )
+        resolved = output.resolve()
+        previous = identities.get(resolved)
+        if previous is not None:
+            raise LintError(
+                f"Refusing to use both {previous} and {output}: they resolve to the same output. "
+                "Choose separate report, fix-plan, and output-directory paths."
+            )
+        identities[resolved] = output
