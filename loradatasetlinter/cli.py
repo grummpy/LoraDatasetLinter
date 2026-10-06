@@ -9,12 +9,12 @@ import typer
 from loradatasetlinter import __version__
 from loradatasetlinter.engine import scan_dataset
 from loradatasetlinter.errors import LintError
-from loradatasetlinter.fixplan import write_fix_plan
+from loradatasetlinter.fixplan import render_fix_plan
 from loradatasetlinter.policy import apply_overrides, load_policy
-from loradatasetlinter.report.html_out import write_html
-from loradatasetlinter.report.json_out import write_json
+from loradatasetlinter.report.html_out import render_html
+from loradatasetlinter.report.json_out import render_json
 from loradatasetlinter.report.terminal import render_terminal
-from loradatasetlinter.safety import ensure_outputs_outside
+from loradatasetlinter.safety import preflight_outputs, publish_outputs
 
 app = typer.Typer(
     add_completion=False,
@@ -106,18 +106,35 @@ def scan(
             json_path = json_path or (output_dir / "report.json")
             html_path = html_path or (output_dir / "report.html")
         root = dataset.expanduser().resolve()
-        ensure_outputs_outside(root, [json_path, html_path, fix_plan, output_dir])
-        if output_dir is not None:
-            output_dir.mkdir(parents=True, exist_ok=True)
+        targets = dict(
+            preflight_outputs(
+                root,
+                [
+                    ("JSON report", json_path),
+                    ("HTML report", html_path),
+                    ("fix plan", fix_plan),
+                ],
+                output_dir,
+            )
+        )
         report = scan_dataset(root, loaded)
+        rendered: list[tuple[str, Path, str]] = []
+        if json_path is not None:
+            rendered.append(("JSON report", targets["JSON report"], render_json(report)))
+        if html_path is not None:
+            rendered.append(
+                (
+                    "HTML report",
+                    targets["HTML report"],
+                    render_html(report, root, loaded.output.thumbnail_px),
+                )
+            )
+        if fix_plan is not None:
+            rendered.append(("fix plan", targets["fix plan"], render_fix_plan(report, root)))
+        if rendered:
+            publish_outputs(rendered)
         if not quiet:
             typer.echo(render_terminal(report))
-        if json_path is not None:
-            write_json(report, json_path)
-        if html_path is not None:
-            write_html(report, html_path, root, loaded.output.thumbnail_px)
-        if fix_plan is not None:
-            write_fix_plan(report, root, fix_plan)
     except LintError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=3) from exc

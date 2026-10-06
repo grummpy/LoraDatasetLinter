@@ -50,7 +50,7 @@ lora-dataset-linter --version
 
 Exit codes: `0` pass, `1` warn, `2` fail, `3` error (bad policy, missing folder, or a report path that would land inside the dataset).
 
-Reports must stay outside the dataset. `--json`, `--html`, `--fix-plan`, and `--output-dir` are refused when they resolve inside the folder being scanned.
+Reports must stay outside the dataset. `--json`, `--html`, `--fix-plan`, and `--output-dir` are refused when they resolve inside the folder being scanned. Their paths, existing file identities, and file/directory conflicts are preflighted together; reports are rendered and staged before any prior report is atomically replaced.
 
 ### Dataset layout
 
@@ -74,7 +74,7 @@ Image suffixes: `.jpg`, `.jpeg`, `.png`, `.webp`, `.bmp`, `.gif`, `.tif`, `.tiff
 
 The terminal summary lists status, score, dataset stats, and findings. JSON is the same report without thumbnails. HTML is one file: inline CSS, inline filter script, and JPEG thumbnails as `data:` URIs generated with Pillow. Nothing in the report is fetched from the network.
 
-`--fix-plan` writes a bash script that defaults to a dry run (`DRY_RUN=1`). Review it, then apply with `DRY_RUN=0 bash fix-plan.sh`. Moves go to `$DATASET/_linter_review/{duplicates,low_resolution,unreadable,orphans}/`. The lexicographically first path in an exact-duplicate group is kept. Each move checks that its source and destination remain contained in the dataset, refuses symlinks and pre-existing destinations, and writes a shell-escaped recovery receipt to `_linter_review/recovery-receipts.tsv`. An image's unshared caption moves beside it; shared captions are left in place and called out for review. Near-duplicates and missing captions are comments only.
+`--fix-plan` writes a bash script that defaults to a dry run (`DRY_RUN=1`). Review it, then apply with `DRY_RUN=0 bash fix-plan.sh`. Moves go to `$DATASET/_linter_review/{duplicates,low_resolution,unreadable,orphans}/`. The lexicographically first path in an exact-duplicate group is kept. Each image/caption unit checks that sources and destinations remain contained in the dataset, refuses symlinks and pre-existing destinations, and preflights both files before either moves. A safe receipt journal is opened before the first move and records intent before each unit, supporting recovery if a later operation fails. An image's unshared caption moves beside it; shared captions are left in place and called out for review. Near-duplicates and missing captions are comments only.
 
 ## Checks
 

@@ -48,21 +48,23 @@ def render_fix_plan(report: Report, dataset: Path) -> str:
         "# Suggested by LoRA Dataset Linter. Review every line before you run it.",
         "# The linter did not move or rename anything.",
         "# Dry run is the default. Apply with: DRY_RUN=0 bash fix-plan.sh",
-        "# Applied moves append shell-escaped source and destination paths to",
+        "# Each image/caption pair is preflighted together before either file moves.",
+        "# Applied units append shell-escaped intent and completion records to",
         "# _linter_review/recovery-receipts.tsv for manual recovery.",
         "set -euo pipefail",
         f"DATASET={_bash_quote(str(root))}",
         'DRY_RUN="${DRY_RUN:-1}"',
         'RECEIPTS="$DATASET/_linter_review/recovery-receipts.tsv"',
+        "JOURNAL_READY=0",
         "fail() {",
         '  printf "%s\\n" "fix-plan: $1" >&2',
         "  exit 1",
         "}",
         "append_component() {",
         '  if [[ "$1" == "/" ]]; then',
-        '    printf "/%s" "$2"',
+        '    REBUILT_PATH="/$2"',
         "  else",
-        '    printf "%s/%s" "$1" "$2"',
+        '    REBUILT_PATH="$1/$2"',
         "  fi",
         "}",
         "assert_dataset_root() {",
@@ -71,9 +73,10 @@ def render_fix_plan(report: Report, dataset: Path) -> str:
         '  while [[ -n "$remainder" ]]; do',
         '    component="${remainder%%/*}"',
         '    if [[ "$remainder" == */* ]]; then remainder="${remainder#*/}"; else remainder=""; fi',
-        '    [[ -n "$component" && "$component" != "." && "$component" != ".." ]]'
-        ' || fail "unsafe dataset path"',
-        '    current="$(append_component "$current" "$component")"',
+        '    [[ -n "$component" && "$component" != "." && "$component" != ".." ]] '
+        '|| fail "unsafe dataset path"',
+        '    append_component "$current" "$component"',
+        '    current="$REBUILT_PATH"',
         '    [[ ! -L "$current" ]] || fail "dataset path contains a symlink"',
         "  done",
         "}",
@@ -92,24 +95,31 @@ def render_fix_plan(report: Report, dataset: Path) -> str:
         '  while [[ -n "$remainder" ]]; do',
         '    component="${remainder%%/*}"',
         '    if [[ "$remainder" == */* ]]; then remainder="${remainder#*/}"; else remainder=""; fi',
-        '    [[ -n "$component" && "$component" != "." && "$component" != ".." ]]'
-        ' || fail "unsafe move path"',
-        '    current="$(append_component "$current" "$component")"',
+        '    [[ -n "$component" && "$component" != "." && "$component" != ".." ]] '
+        '|| fail "unsafe move path"',
+        '    append_component "$current" "$component"',
+        '    current="$REBUILT_PATH"',
         '    [[ ! -L "$current" ]] || fail "move path contains a symlink"',
         "  done",
         "}",
         "ensure_destination_parent() {",
         '  local target="$1" remainder component current="$DATASET"',
         '  assert_under_dataset "$target"',
-        '  if [[ "$DATASET" == "/" ]]; then remainder="${target#/}"; '
-        'else remainder="${target#"$DATASET"/}"; fi',
-        '  case "$remainder" in _linter_review/*) ;; *) '
-        'fail "destination is outside _linter_review" ;; esac',
+        '  if [[ "$DATASET" == "/" ]]; then',
+        '    remainder="${target#/}"',
+        "  else",
+        '    remainder="${target#"$DATASET"/}"',
+        "  fi",
+        '  case "$remainder" in',
+        '    _linter_review/*) ;;',
+        '    *) fail "destination is outside _linter_review" ;;',
+        "  esac",
         '  remainder="${remainder%/*}"',
         '  while [[ -n "$remainder" ]]; do',
         '    component="${remainder%%/*}"',
         '    if [[ "$remainder" == */* ]]; then remainder="${remainder#*/}"; else remainder=""; fi',
-        '    current="$(append_component "$current" "$component")"',
+        '    append_component "$current" "$component"',
+        '    current="$REBUILT_PATH"',
         '    if [[ -L "$current" ]]; then fail "destination parent contains a symlink"; fi',
         '    if [[ -e "$current" ]]; then',
         '      [[ -d "$current" ]] || fail "destination parent is not a directory"',
@@ -120,33 +130,70 @@ def render_fix_plan(report: Report, dataset: Path) -> str:
         '|| fail "destination parent changed unexpectedly"',
         "  done",
         "}",
-        "write_receipt() {",
+        "prepare_journal() {",
+        '  [[ "$JOURNAL_READY" == "1" ]] && return',
+        "  assert_dataset_root",
         '  assert_under_dataset "$RECEIPTS"',
         '  ensure_destination_parent "$RECEIPTS"',
         '  if [[ -L "$RECEIPTS" || ( -e "$RECEIPTS" && ! -f "$RECEIPTS" ) ]]; then',
         '    fail "recovery receipt path is unsafe"',
         "  fi",
-        '  printf "moved\\t%q\\t%q\\n" "$1" "$2" >> "$RECEIPTS" '
+        '  : >> "$RECEIPTS" || fail "could not prepare recovery receipts"',
+        '  JOURNAL_READY=1',
+        '  write_journal "plan" "$DATASET" "" "" "" '
         '|| fail "could not write recovery receipt"',
         "}",
-        "move() {",
-        '  if [[ "$DRY_RUN" == "1" ]]; then',
-        '    printf "would move %s -> %s\\n" "$1" "$2"',
-        "    return",
-        "  fi",
-        "  assert_dataset_root",
+        "write_journal() {",
+        '  [[ "$JOURNAL_READY" == "1" && -f "$RECEIPTS" && ! -L "$RECEIPTS" ]] || return 1',
+        '  printf "%s\\t%q\\t%q\\t%q\\t%q\\n" "$1" "$2" "$3" "$4" "$5" >> "$RECEIPTS"',
+        "}",
+        "preflight_move() {",
         '  assert_under_dataset "$1"',
         '  assert_under_dataset "$2"',
-        '  case "$2" in "$DATASET"/_linter_review/*) ;; *) '
-        'fail "destination is outside _linter_review" ;; esac',
+        '  case "$2" in',
+        '    "$DATASET"/_linter_review/*) ;;',
+        '    *) fail "destination is outside _linter_review" ;;',
+        "  esac",
         '  [[ -f "$1" && ! -L "$1" ]] || fail "source is missing or unsafe"',
         '  [[ ! -e "$2" && ! -L "$2" ]] '
         '|| fail "destination already exists; refusing to overwrite it"',
         '  ensure_destination_parent "$2"',
-        '  mv -n "$1" "$2"',
-        '  [[ ! -e "$1" && ! -L "$1" ]] || fail "move did not complete; no receipt was written"',
-        '  [[ -e "$2" && ! -L "$2" ]] || fail "move destination is missing or unsafe"',
-        '  write_receipt "$1" "$2"',
+        "}",
+        "move_one() {",
+        '  mv -n "$1" "$2" || return 1',
+        '  [[ ! -e "$1" && ! -L "$1" && -f "$2" && ! -L "$2" ]]',
+        "}",
+        "rollback_one() {",
+        '  assert_under_dataset "$1"',
+        '  assert_under_dataset "$2"',
+        '  if [[ ! -e "$1" && ! -L "$1" ]]; then return 0; fi',
+        '  [[ -f "$1" && ! -e "$2" && ! -L "$2" ]] || return 1',
+        '  mv -n "$1" "$2" || return 1',
+        '  [[ -f "$2" && ! -e "$1" && ! -L "$1" ]]',
+        "}",
+        "move_unit() {",
+        '  if [[ "$DRY_RUN" == "1" ]]; then',
+        '    printf "would move %s -> %s\\n" "$1" "$2"',
+        '    if [[ "$#" == "4" ]]; then printf "would move %s -> %s\\n" "$3" "$4"; fi',
+        "    return",
+        "  fi",
+        '  [[ "$#" == "2" || "$#" == "4" ]] || fail "invalid move unit"',
+        "  prepare_journal",
+        '  preflight_move "$1" "$2"',
+        '  if [[ "$#" == "4" ]]; then preflight_move "$3" "$4"; fi',
+        '  write_journal "intent" "$1" "$2" "${3:-}" "${4:-}" '
+        '|| fail "could not record move intent"',
+        '  if ! move_one "$1" "$2"; then',
+        '    fail "image move failed; inspect the recovery receipt"',
+        "  fi",
+        '  if [[ "$#" == "4" ]] && ! move_one "$3" "$4"; then',
+        '    rollback_one "$4" "$3" || true',
+        '    rollback_one "$2" "$1" || true',
+        '    write_journal "rolled_back" "$1" "$2" "$3" "$4" || true',
+        '    fail "caption move failed; image rollback was attempted"',
+        "  fi",
+        '  write_journal "moved" "$1" "$2" "${3:-}" "${4:-}" '
+        '|| fail "move completed but receipt finalization failed; inspect move intent"',
         "}",
         "",
     ]
@@ -157,16 +204,25 @@ def render_fix_plan(report: Report, dataset: Path) -> str:
     image_captions, caption_owners = _caption_owners(report)
     moves = 0
 
-    def add_move(rel: str, bucket: str, why: str) -> None:
+    def add_unit(rel: str, bucket: str, why: str, caption: str | None = None) -> None:
         nonlocal moves
         if rel in scheduled:
             return
         scheduled.add(rel)
         destination = Path("_linter_review") / bucket / rel
-        src = _bash_quote(str(root / rel))
-        dest = _bash_quote(str(root / destination))
+        command = f"move_unit {_bash_quote(str(root / rel))} {_bash_quote(str(root / destination))}"
+        if caption is not None:
+            if caption in scheduled:
+                lines.append(_comment(f"caption {caption} was already scheduled; left in place"))
+            else:
+                scheduled.add(caption)
+                caption_destination = Path("_linter_review") / bucket / caption
+                command += (
+                    f" {_bash_quote(str(root / caption))}"
+                    f" {_bash_quote(str(root / caption_destination))}"
+                )
         lines.append(_comment(why))
-        lines.append(f"move {src} {dest}")
+        lines.append(command)
         moves += 1
 
     def schedule_image(rel: str, bucket: str, why: str) -> None:
@@ -205,24 +261,23 @@ def render_fix_plan(report: Report, dataset: Path) -> str:
 
     flagged_captions: set[str] = set()
     for rel, bucket, why in image_moves:
-        add_move(rel, bucket, why)
         caption = image_captions.get(rel)
-        if caption is None:
-            continue
-        owners = caption_owners.get(caption, set())
-        if len(owners) == 1:
-            add_move(caption, bucket, f"caption paired with {rel}")
-        elif caption not in flagged_captions:
-            owner_list = ", ".join(sorted(owners))
-            lines.append(
-                _comment(
-                    f"shared caption {caption} is used by {owner_list}; "
-                    "left in place for manual review"
+        owners = caption_owners.get(caption, set()) if caption is not None else set()
+        if caption is None or len(owners) == 1:
+            add_unit(rel, bucket, why, caption)
+        else:
+            add_unit(rel, bucket, why)
+            if caption not in flagged_captions:
+                owner_list = ", ".join(sorted(owners))
+                lines.append(
+                    _comment(
+                        f"shared caption {caption} is used by {owner_list}; "
+                        "left in place for manual review"
+                    )
                 )
-            )
-            flagged_captions.add(caption)
+                flagged_captions.add(caption)
     for rel, bucket, why in orphan_moves:
-        add_move(rel, bucket, why)
+        add_unit(rel, bucket, why)
     if moves == 0:
         lines.append('printf "No file moves suggested.\\n"')
     lines.append("")
