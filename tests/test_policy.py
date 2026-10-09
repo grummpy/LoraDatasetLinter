@@ -67,6 +67,13 @@ def test_policy_rejects_nonfinite_and_coerced_values(tmp_path: Path):
             raise AssertionError(f"{name} should fail policy validation")
 
 
+def test_policy_allows_non_step_aligned_base_that_bucket_generator_rounds(tmp_path: Path):
+    path = tmp_path / "policy.yaml"
+    path.write_text("aspect:\n  base_resolutions: [1000]\n", encoding="utf-8")
+    policy = load_policy(path)
+    assert policy.aspect.base_resolutions == [1000]
+
+
 def test_disabling_a_check_drops_its_findings(tmp_path: Path):
     data = yaml.safe_load(
         (Path(__file__).parents[1] / "loradatasetlinter" / "default_policy.yaml").read_text(

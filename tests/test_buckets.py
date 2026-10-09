@@ -38,3 +38,9 @@ def test_each_standard_base_has_its_own_square():
         assert (square, square) in resos
         bucket, _, _ = select_bucket(base, base, resos)
         assert bucket == (square, square)
+
+
+def test_custom_base_is_rounded_to_step_aligned_buckets():
+    resos = make_bucket_resolutions((1000, 1000), 256, 2048, 64)
+    assert (960, 960) in resos
+    assert all(width % 64 == 0 and height % 64 == 0 for width, height in resos)

@@ -357,10 +357,6 @@ def _validate_cross(policy: Policy) -> None:
     if aspect.min_bucket_size % aspect.bucket_step or aspect.max_bucket_size % aspect.bucket_step:
         raise PolicyError("aspect bucket sizes must be multiples of aspect.bucket_step")
     for base in aspect.base_resolutions:
-        if base % aspect.bucket_step:
-            raise PolicyError(
-                "aspect.base_resolutions values must be multiples of aspect.bucket_step"
-            )
         if base < aspect.min_bucket_size:
             raise PolicyError(
                 f"aspect.base_resolution {base} is smaller than aspect.min_bucket_size"

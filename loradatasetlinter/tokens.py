@@ -9,7 +9,11 @@ from __future__ import annotations
 
 import re
 
-_PIECE = re.compile(r"\w+(?:'[\w]+)?|[^\s\w]", re.UNICODE)
+# ``\w`` includes underscores.  CLIP's byte-pair tokenizer treats an underscore
+# as punctuation, so keeping it inside a word can substantially undercount tags
+# such as ``red_hair``.  Keep apostrophes inside words, but emit underscores as
+# their own approximate piece.
+_PIECE = re.compile(r"[^\W_]+(?:'[^\W_]+)?|_|[^\s\w]", re.UNICODE)
 
 
 def estimate_clip_tokens(text: str) -> int:
