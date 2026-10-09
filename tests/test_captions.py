@@ -113,6 +113,11 @@ def test_token_limit_boundary(tmp_path: Path, policy):
     assert hit.details["limit"] == count - 1
 
 
+def test_unicode_caption_token_estimate_is_nonzero():
+    assert estimate_clip_tokens("猫 女孩") > 0
+    assert estimate_clip_tokens("кириллица portrait") > 0
+
+
 def test_normalize_and_edit_distance():
     assert normalize_tag("Grey_Hair") == normalize_tag("gray hair")
     assert levenshtein("standing", "standlng") == 1

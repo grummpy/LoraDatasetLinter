@@ -90,6 +90,20 @@ def test_warn_and_fail_exit_codes(tmp_path: Path):
     assert result.exit_code == 2, result.output
 
 
+def test_invalid_policy_exits_three_before_scanning(tmp_path: Path):
+    root = clean_dataset(tmp_path / "data")
+    policy = tmp_path / "invalid-policy.yaml"
+    policy.write_text("version: true\n", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        ["scan", str(root), "--policy", str(policy), "--quiet"],
+    )
+
+    assert result.exit_code == 3
+    assert "version must be an integer" in result.output
+
+
 def test_refuses_to_write_inside_the_dataset(tmp_path: Path):
     root = clean_dataset(tmp_path / "data")
     before = snapshot(root)
