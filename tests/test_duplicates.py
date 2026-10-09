@@ -1,4 +1,6 @@
 import shutil
+import sys
+import types
 from pathlib import Path
 
 import numpy as np
@@ -117,8 +119,6 @@ def test_cosine_threshold_includes_equality():
 
 
 def test_clip_disabled_does_not_import_torch(tmp_path: Path, policy):
-    import sys
-
     sys.modules.pop("torch", None)
     sys.modules.pop("open_clip", None)
     circle(tmp_path / "a.png")
@@ -144,6 +144,100 @@ def test_clip_enabled_without_checkpoint_is_info_and_stays_off_gpu(tmp_path: Pat
         "download" in unavailable[0].reason.lower() or "not found" in unavailable[0].reason.lower()
     )
     assert "torch" not in sys.modules
+
+
+def test_clip_setup_preserves_cuda_visible_devices(monkeypatch, tmp_path: Path, policy):
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2")
+    policy.duplicates.clip.enabled = True
+    policy.duplicates.clip.checkpoint = str(tmp_path / "missing.pt")
+    scan_dataset(tmp_path, policy)
+    assert __import__("os").environ["CUDA_VISIBLE_DEVICES"] == "2"
+
+
+def test_clip_embedding_preserves_cuda_visible_devices_on_mocked_success(
+    monkeypatch, tmp_path: Path
+):
+    """CPU embedding must not rewrite the caller's GPU visibility setting."""
+    from loradatasetlinter.checks.duplicates import embed_clip
+    from loradatasetlinter.models import ImageRecord
+
+    class FakeTensor:
+        def unsqueeze(self, _dimension):
+            return self
+
+        def to(self, _device):
+            return self
+
+        def norm(self, **_kwargs):
+            return 1
+
+        def __truediv__(self, _other):
+            return self
+
+        def __getitem__(self, _index):
+            return self
+
+        def detach(self):
+            return self
+
+        def cpu(self):
+            return self
+
+        def numpy(self):
+            return np.array([1.0, 0.0])
+
+    class NoGrad:
+        def __enter__(self):
+            return None
+
+        def __exit__(self, *_args):
+            return False
+
+    class FakeModel:
+        def eval(self):
+            return self
+
+        def encode_image(self, _tensor):
+            return FakeTensor()
+
+    image_path = circle(tmp_path / "a.png")
+    checkpoint = tmp_path / "weights.pt"
+    checkpoint.write_bytes(b"mock")
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2")
+    monkeypatch.setitem(
+        sys.modules,
+        "open_clip",
+        types.SimpleNamespace(
+            create_model_and_transforms=lambda *_args, **_kwargs: (
+                FakeModel(),
+                None,
+                lambda _image: FakeTensor(),
+            )
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        types.SimpleNamespace(device=lambda value: value, no_grad=NoGrad),
+    )
+
+    vectors = embed_clip(
+        [
+            ImageRecord(
+                path=image_path,
+                rel="a.png",
+                file_hash="mock",
+                file_size=image_path.stat().st_size,
+                oriented_width=16,
+                oriented_height=16,
+            )
+        ],
+        checkpoint=str(checkpoint),
+        model_name="mock",
+    )
+
+    assert vectors["a.png"].tolist() == [1.0, 0.0]
+    assert __import__("os").environ["CUDA_VISIBLE_DEVICES"] == "2"
 
 
 def test_source_never_mentions_cuda_calls():

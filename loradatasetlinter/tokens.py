@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-_PIECE = re.compile(r"[A-Za-z0-9]+(?:'[A-Za-z]+)?|[^\s\w]", re.UNICODE)
+_PIECE = re.compile(r"\w+(?:'[\w]+)?|[^\s\w]", re.UNICODE)
 
 
 def estimate_clip_tokens(text: str) -> int:

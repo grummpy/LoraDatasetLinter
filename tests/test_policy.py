@@ -49,6 +49,24 @@ def test_unknown_key_and_bad_version_are_errors(tmp_path: Path):
         raise AssertionError("version 2 should fail")
 
 
+def test_policy_rejects_nonfinite_and_coerced_values(tmp_path: Path):
+    for name, text in {
+        "nan": "resolution:\n  upscale_block_fraction: .nan\n",
+        "infinity": "aspect:\n  extreme_aspect: .inf\n",
+        "fractional_version": "version: 1.0\n",
+        "boolean_version": "version: true\n",
+        "impossible_buckets": "aspect:\n  min_bucket_size: 250\n",
+    }.items():
+        path = tmp_path / f"{name}.yaml"
+        path.write_text(text, encoding="utf-8")
+        try:
+            load_policy(path)
+        except PolicyError:
+            pass
+        else:
+            raise AssertionError(f"{name} should fail policy validation")
+
+
 def test_disabling_a_check_drops_its_findings(tmp_path: Path):
     data = yaml.safe_load(
         (Path(__file__).parents[1] / "loradatasetlinter" / "default_policy.yaml").read_text(

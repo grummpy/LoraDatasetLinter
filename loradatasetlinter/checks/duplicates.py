@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from collections import defaultdict
 from pathlib import Path
 
@@ -197,7 +196,6 @@ def embed_clip(
         raise ClipUnavailable(
             f"CLIP checkpoint not found: {weight_path}. The linter does not download weights."
         )
-    os.environ["CUDA_VISIBLE_DEVICES"] = ""
     try:
         import open_clip
         import torch

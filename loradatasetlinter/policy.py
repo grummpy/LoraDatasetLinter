@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -186,7 +187,7 @@ def deep_merge(base: dict, override: dict, prefix: str = "") -> dict:
 def policy_from_dict(data: dict) -> Policy:
     if not isinstance(data, dict):
         raise PolicyError("policy must be a mapping")
-    version = int(data.get("version", 1))
+    version = _int(data, "version", minimum=1)
     if version != 1:
         raise PolicyError(f"Unsupported policy version: {version}")
     resolution = _section(data, "resolution")
@@ -353,7 +354,17 @@ def _validate_cross(policy: Policy) -> None:
     aspect = policy.aspect
     if aspect.max_bucket_size < aspect.min_bucket_size:
         raise PolicyError("aspect.max_bucket_size must be >= aspect.min_bucket_size")
+    if aspect.min_bucket_size % aspect.bucket_step or aspect.max_bucket_size % aspect.bucket_step:
+        raise PolicyError("aspect bucket sizes must be multiples of aspect.bucket_step")
     for base in aspect.base_resolutions:
+        if base % aspect.bucket_step:
+            raise PolicyError(
+                "aspect.base_resolutions values must be multiples of aspect.bucket_step"
+            )
+        if base < aspect.min_bucket_size:
+            raise PolicyError(
+                f"aspect.base_resolution {base} is smaller than aspect.min_bucket_size"
+            )
         if aspect.max_bucket_size < base:
             raise PolicyError(
                 f"aspect.max_bucket_size ({aspect.max_bucket_size}) is smaller than "
@@ -445,6 +456,8 @@ def _float(
     if key not in data or isinstance(data[key], bool) or not isinstance(data[key], int | float):
         raise PolicyError(f"{key} must be a number")
     value = float(data[key])
+    if not math.isfinite(value):
+        raise PolicyError(f"{key} must be a finite number")
     if low is not None and value < low:
         raise PolicyError(f"{key} must be >= {low}")
     if high is not None and value > high:
