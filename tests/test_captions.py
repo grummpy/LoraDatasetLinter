@@ -118,6 +118,11 @@ def test_unicode_caption_token_estimate_is_nonzero():
     assert estimate_clip_tokens("кириллица portrait") > 0
 
 
+def test_underscore_is_a_token_piece_not_part_of_a_word():
+    assert estimate_clip_tokens("red_hair") == 3
+    assert estimate_clip_tokens("red_hair") > estimate_clip_tokens("redhair")
+
+
 def test_normalize_and_edit_distance():
     assert normalize_tag("Grey_Hair") == normalize_tag("gray hair")
     assert levenshtein("standing", "standlng") == 1
