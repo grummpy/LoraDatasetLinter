@@ -199,7 +199,7 @@
       {% if image.thumbnail %}
       <img alt="{{ image.file }}" src="{{ image.thumbnail }}">
       {% else %}
-      <div class="placeholder">unreadable</div>
+      <div class="placeholder">{{ image.preview_status }}</div>
       {% endif %}
       <figcaption>
         <strong>{{ image.file }}</strong>

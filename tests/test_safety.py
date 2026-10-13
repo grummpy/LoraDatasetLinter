@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 from loradatasetlinter.engine import scan_dataset
+from loradatasetlinter.inventory import scan_folder
 from loradatasetlinter.report.html_out import render_html
 from loradatasetlinter.report.json_out import render_json
 from PIL import Image
@@ -54,3 +55,23 @@ def test_scan_never_mutates_the_dataset(tmp_path: Path, monkeypatch):
     assert report.stats["orphan_captions"] == 1
     # The outside target of the symlink was not required, and the dataset listing is unchanged.
     assert set(os.listdir(root / "nested")) == {"photo.png", "photo.txt"}
+
+
+def test_scan_records_and_prunes_file_and_directory_symlinks(tmp_path: Path, policy):
+    root = tmp_path / "data"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    gradient(outside / "external.png")
+    (root / "file-link.png").symlink_to(outside / "external.png")
+    (root / "directory-link").symlink_to(outside, target_is_directory=True)
+    (root / "broken-directory-link").symlink_to(tmp_path / "missing", target_is_directory=True)
+
+    dataset = scan_folder(root, policy)
+
+    assert dataset.skipped_symlinks == [
+        "broken-directory-link",
+        "directory-link",
+        "file-link.png",
+    ]
+    assert not dataset.images

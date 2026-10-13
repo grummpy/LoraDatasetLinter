@@ -45,3 +45,15 @@ def test_html_has_no_thumbnail_when_disabled(tmp_path: Path):
     report = scan_dataset(root, relax())
     html = render_html(report, root, thumbnail_px=0)
     assert "data:image" not in html
+    assert html.count("preview disabled") == len(report.images)
+
+
+def test_html_distinguishes_unreadable_images_from_disabled_previews(tmp_path: Path):
+    root = tmp_path / "data"
+    root.mkdir()
+    clean_dataset(root)
+    (root / "broken.png").write_bytes(b"not an image")
+    report = scan_dataset(root, relax())
+    html = render_html(report, root, thumbnail_px=0)
+    assert "unreadable image" in html
+    assert "preview disabled" in html
