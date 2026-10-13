@@ -28,12 +28,21 @@ def write_html(report: Report, destination: Path, dataset: Path, thumbnail_px: i
 def render_html(report: Report, dataset: Path, thumbnail_px: int) -> str:
     images = []
     for row in report.images:
+        readable = row.get("error") is None
+        thumbnail = _thumbnail(dataset / row["file"], thumbnail_px) if readable else ""
         images.append(
             {
                 **row,
-                "thumbnail": _thumbnail(dataset / row["file"], thumbnail_px)
-                if row.get("error") is None
-                else "",
+                "thumbnail": thumbnail,
+                # A missing thumbnail is not itself proof that an image could
+                # not be read: users can intentionally disable previews.
+                "preview_status": (
+                    "unreadable image"
+                    if not readable
+                    else "preview disabled"
+                    if thumbnail_px <= 0
+                    else "preview unavailable"
+                ),
                 "bucket_text": ", ".join(
                     f"{base}:{wh[0]}x{wh[1]}" for base, wh in (row.get("buckets") or {}).items()
                 ),

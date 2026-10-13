@@ -85,9 +85,19 @@ def shared_caption_groups(dataset: Dataset) -> list[tuple[str, list[str]]]:
 def _walk(root: Path):
     found: list[tuple[str, Path]] = []
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
-        dirnames[:] = sorted(
-            name for name in dirnames if not name.startswith(".") and name != "_linter_review"
-        )
+        # ``os.walk`` does not yield directory symlinks in ``filenames``.  Prune
+        # them explicitly so they remain excluded *and* are included in the
+        # read-only audit trail, including dangling directory links.
+        allowed_dirs: list[str] = []
+        for name in sorted(dirnames):
+            if name.startswith(".") or name == "_linter_review":
+                continue
+            path = Path(dirpath) / name
+            if path.is_symlink():
+                found.append(("symlink", path))
+            else:
+                allowed_dirs.append(name)
+        dirnames[:] = allowed_dirs
         for name in sorted(filenames):
             if name.startswith("."):
                 continue
